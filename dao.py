@@ -7,7 +7,7 @@ from numpy.linalg import cholesky
 from itertools import chain
 # The DaO code in this file is a Python implementation of the DaO algorithm, taken from
 # the following GitHub repository: https://github.com/bja43/DaO_simulation
-# The original code was written by Brian Arnold and is licensed under the MIT License.
+# The original code was written by Bryan Andrews and is licensed under the MIT License.
 #
 # Andrews, B., & Kummerfeld, E. (2024). Better Simulations for Validating Causal Discovery with the
 # DAG-Adaptation of the Onion Method. arXiv preprint arXiv:2405.13100.
