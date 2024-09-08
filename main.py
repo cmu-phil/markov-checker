@@ -1,3 +1,4 @@
+import os
 import markov_checker_simulation as mcs
 
 output_dir = 'alg_output'

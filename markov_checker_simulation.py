@@ -1,3 +1,4 @@
+import os
 import sys
 import pandas as pandas
 import numpy as numpy
@@ -476,6 +477,10 @@ class FindGoodModelContinuous(FindGoodModel):
             for avg_degree in range(1, 5 + 1): # 1, 2, 3, 4, 5
                 if avg_degree > num_nodes - 1:
                     continue
+
+                # Create the output directory if it does not exist
+                if not os.path.exists(f'{self.location}/{dir}'):
+                    os.makedirs(f'{self.location}/{dir}')
 
                 with (open(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt', 'w') as file,
                       open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt',
