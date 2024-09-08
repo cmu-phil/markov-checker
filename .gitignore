@@ -1,8 +1,9 @@
 # Ignore the Tetrad JAR file
 inst/tetrad-gui-*.jar
 
-# Ignore Java JDK directory
+# Ignore Java JDK directory in particular
 inst/jdk-*/
 
-# Optional: If you want to ignore all files in the inst/ directory
+# Ignore these directories that are created by the simulation scripts
 inst/*
+alg_output/*

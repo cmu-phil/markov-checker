@@ -751,7 +751,3 @@ class FindGoodModelAncestral(FindGoodModel):
                     print(train, file=train_file)
 
 
-FindGoodModelContinuous('/Users/josephramsey/Documents', sim_type='lg').maps()
-# FindGoodModelContinuous('/Users/josephramsey/Documents', sim_type='exp').maps()
-# FindGoodModelMultinomial('/Users/josephramsey/Documents').maps()
-# FindGoodModelAncestral('/Users/josephramsey/Documents').maps()
