@@ -11,4 +11,3 @@ if not os.path.exists(output_dir):
 mcs.FindGoodModelContinuous(output_dir, sim_type='lg').maps()
 # FindGoodModelContinuous(output_dir, sim_type='exp').maps()
 # FindGoodModelMultinomial(output_dir).maps()
-# FindGoodModelAncestral(output_dir).maps()
