@@ -72,3 +72,5 @@ python main.py
 ```
 
 The user should uncomment the desired simulation in this script and run it. This spews forth much text, but the formatted simulation results are saved in the `alg_output` directory.
+
+Each simulated dataset is saved in this directory, along with the CPDAGs and DAGs obtained from the various algorithms. The Markov condition is checked on these CPDAGs and DAGs with respect to the data, along with the analysis results.
