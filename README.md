@@ -67,6 +67,8 @@ For Java: amazon-corretto-21-aarch64, Tetrad 7.6.5
 
 The main Python script is `markov_checker_simulation.py`. This script can be run from the command line with the following arguments:
 
-```angular2html
-python markov_checker_simulation.py
 ```
+python main.py
+```
+
+The user should uncomment the desired simulation in this script and run it. This spews forth much text, but the formatted simulation results are saved in the `alg_output` directory.
