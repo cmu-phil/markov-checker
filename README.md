@@ -42,6 +42,27 @@ setup_java_and_tetrad.py
 
 This script downloads the Tetrad software and sets up the Java environment for the Python code to run. The Tetrad software is used to run a number of algorithms.
 
+The following software versions were used to generate the results in the paper:
+
+```
+platform       aarch64-apple-darwin20      
+arch           aarch64                     
+os             darwin20                    
+system         aarch64, darwin20           
+status                                     
+major          4                           
+minor          3.2                         
+year           2023                        
+month          10                          
+day            31                          
+svn rev        85441                       
+language       R                           
+version.string R version 4.3.2 (2023-10-31)
+nickname       Eye Holes  
+Python 3.12.1 (v3.12.1:2305ca5144, Dec  7 2023, 17:23:38) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin
+For Java: amazon-corretto-21-aarch64, Tetrad 7.6.5
+```
+
 ## Usage
 
 The main Python script is `markov_checker_simulation.py`. This script can be run from the command line with the following arguments:
