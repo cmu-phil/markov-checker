@@ -9,5 +9,5 @@ if not os.path.exists(output_dir):
 
 # Run the desired simulation--uncomment the desired line
 mcs.FindGoodModelContinuous(output_dir, sim_type='lg').maps()
-# FindGoodModelContinuous(output_dir, sim_type='exp').maps()
-# FindGoodModelMultinomial(output_dir).maps()
+# mcs.FindGoodModelContinuous(output_dir, sim_type='exp').maps()
+# mcs.FindGoodModelMultinomial(output_dir).maps()

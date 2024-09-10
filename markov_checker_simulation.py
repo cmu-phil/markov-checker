@@ -2,6 +2,8 @@ import os
 import sys
 import pandas as pandas
 import numpy as numpy
+from pkg_resources import parse_version
+from scipy.special.cython_special import kl_div
 from sklearn.model_selection import train_test_split
 
 BASE_DIR = "../py-tetrad/pytetrad"
@@ -178,7 +180,7 @@ class FindGoodModel:
 
         test_java = translate.pandas_data_to_tetrad(self.test)
 
-        cpdag, a2Star, p_ad, frac_dep_null, num_test_indep, num_test_dep \
+        cpdag, a2Star, p_ad, kl_div, frac_dep_null, num_test_indep, num_test_dep \
             = self.markov_check(graph, test_java, self.params)
 
         try:
@@ -203,7 +205,7 @@ class FindGoodModel:
 
         line = (f"{alg:14} {param:8.3f}  {self.graph.getNumNodes():5}    {edges:3}    {num_params:7.0f}"
                 f" {cpdag:6} {num_test_indep:9} "
-                f" {a2Star:8.4f} {p_ad:8.4f}  "
+                f" {a2Star:8.4f} {p_ad:8.4f} {kl_div:8.4f}  "
                 f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  "
                 f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} "
                 f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f}")
@@ -212,7 +214,7 @@ class FindGoodModel:
 
     def header(self):
         str = (
-            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad   |alpha|"
+            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad    kldiv   |alpha|"
             f"           bic    cfi     nfi    nnfi  [TRUTH-->]  |G*|      ap     ar    ahp    ahr"
             f"     f1    f0.5   f2.0")
         self.my_print(str)
@@ -298,7 +300,22 @@ class FindGoodModel:
         fd_indep = mc.getFractionDependent(True)
         num_tests_indep = mc.getNumTests(True)
         num_test_dep = mc.getNumTests(False)
-        return cpdag, a2Star, p_ad, fd_indep, num_tests_indep, num_test_dep
+        results = mc.getResults(True)
+        p_values = mc.getPValues(results)
+
+        import numpy as np
+
+        # Calculate KL-divergence
+        bins = 10
+
+        dist = np.histogram(p_values, bins)[0] / len(p_values)
+
+        # Different fromm uniform?
+        unif = np.array([1 / bins for _ in range(bins)])
+
+        kldiv = np.mean(dist * np.log(np.clip(dist, 1e-6, 1) / unif)) # dist could be 0 :-(
+
+        return cpdag, a2Star, p_ad, kldiv, fd_indep, num_tests_indep, num_test_dep
 
     def rule1(self, line, p_ad):
         if p_ad >= self.alpha:
@@ -474,7 +491,7 @@ class FindGoodModelContinuous(FindGoodModel):
         alphas = [0.001, 0.01, 0.05, 0.1, 0.2]
 
         for num_nodes in range(5, 31, 5): # 5, 10, 15, 20, 25, 30
-            for avg_degree in range(1, 5 + 1): # 1, 2, 3, 4, 5
+            for avg_degree in range(1, 6 + 1): # 1, 2, 3, 4, 5
                 if avg_degree > num_nodes - 1:
                     continue
 
@@ -622,6 +639,10 @@ class FindGoodModelMultinomial(FindGoodModel):
             for avg_degree in range(1, 6 + 1):
                 if avg_degree > num_nodes - 1:
                     continue
+
+                # Create the output directory if it does not exist
+                if not os.path.exists(f'{self.location}/{dir}'):
+                    os.makedirs(f'{self.location}/{dir}')
 
                 with (open(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt', 'w') as file,
                       open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt',
