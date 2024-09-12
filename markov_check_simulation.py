@@ -1,9 +1,8 @@
 import os
 import sys
-import pandas as pandas
-import numpy as numpy
-from pkg_resources import parse_version
-from scipy.special.cython_special import kl_div
+
+import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
 BASE_DIR = "../py-tetrad/pytetrad"
@@ -19,15 +18,13 @@ import java.util as util
 import edu.cmu.tetrad.search as tetrad_search
 import edu.cmu.tetrad.graph as tetrad_graph
 import edu.cmu.tetrad.data as tetrad_data
+import edu.cmu.tetrad.sem as tetrad_sem
 from edu.cmu.tetrad.util import Params, Parameters
-import edu.cmu.tetrad.algcomparison.simulation as simulation
-import edu.cmu.tetrad.algcomparison.graph as algcomparison_graph
 import edu.cmu.tetrad.algcomparison.independence as independence
 import edu.cmu.tetrad.algcomparison.statistic as statistic
 
 # For linear simulations.
 import dao as dao
-
 
 from lingam import DirectLiNGAM
 from dagma.linear import DagmaLinear
@@ -44,29 +41,9 @@ base = importr("base")
 lavaan = importr("lavaan")
 performance = importr("performance")
 
-# This script calculates the CFI, NFI, and NNFI for a given model using lavaan.
-def get_stats(df, graph):
-    dag = tetrad_graph.GraphTransforms.dagFromCpdag(graph)
-    model = str(tetrad_graph.GraphSaveLoadUtils.graphToLavaan(dag))
-    with (default_converter + converter).context():
-        r_df = get_conversion().py2rpy(df)
+class FindGoodModel():
 
-    fit = lavaan.lavaan(model, data=r_df)
-    perf = performance.model_performance(fit)
-
-    return {col: perf.rx(i + 1)[0][0] for i, col in enumerate(perf.colnames)}
-
-# This class picks models from a list of (DAG) models by choosing all frugal models.
-# A 'frugal' model is one that is Markov with the minimum edge count. To determine
-# if a model is Markov, we use the Markov checker in tetrad; for those that pass the
-# Markov test, we report the ones with the minimum edge count
-# joseph_ramsey 2023-11-23
-class FindGoodModel:
-    """
-    A class used to find a good model based on given parameters.
-    """
-
-    def __init__(self, location, num_nodes=10, avg_degree=4, num_latents=0, sample_size=1000, sim_type='lg'):
+    def __init__(self, location, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg'):
         print("FindGoodModel", "location", location, "num_nodes", num_nodes, "avg_degree", avg_degree, "num_latents",
               num_latents, "sample_size", sample_size, "sim_type", sim_type)
 
@@ -91,8 +68,6 @@ class FindGoodModel:
 
         self.frac_dep_under_null = 0
 
-        self.passing_unif = []
-
         self.base = importr('base')
         self.bidag = importr('BiDAG')
 
@@ -104,16 +79,36 @@ class FindGoodModel:
 
         self.train = None
         self.test = None
-        self.graph = None
 
-    def save_best_lines(self, alg, params):
+        self.file = file
+
+        data, nodes, graph, num_nodes, avg_deg, sem_im = self.make_data_cont_dao(num_nodes, avg_degree, 0, sample_size)
+        self.train, self.test = train_test_split(data, test_size=.5)  # , random_state=42)
+
+        self.train_java = translate.pandas_data_to_tetrad(self.train)
+        self.train_numpy = self.train.to_numpy()
+
+        self.graph = graph
+        self.sem_im = sem_im
+
+    # This script calculates the CFI, NFI, and NNFI for a given model using lavaan.
+    def get_stats(self, df, graph):
+        dag = tetrad_graph.GraphTransforms.dagFromCpdag(graph)
+        model = str(tetrad_graph.GraphSaveLoadUtils.graphToLavaan(dag))
+        with (default_converter + converter).context():
+            r_df = get_conversion().py2rpy(df)
+
+        fit = lavaan.lavaan(model, data=r_df)
+        perf = performance.model_performance(fit)
+
+        return {col: perf.rx(i + 1)[0][0] for i, col in enumerate(perf.colnames)}
+
+    def save_lines(self, alg, params):
         for param in params:
             cpdag, p_ad, fd_indep, edges, line, cpdag, data_java = self.table_line(alg, param)
             self.my_print(line)
-            self.rule1(line, p_ad)
 
     def print_info(self, msg):
-        self.my_print()
         self.my_print()
         self.my_print(msg)
         self.my_print()
@@ -148,9 +143,6 @@ class FindGoodModel:
         self.my_print('f2 = adjacency F2 score')
         self.my_print()
 
-    def get_passing_unif(self):
-        return self.passing_unif
-
     def get_train(self):
         return self.train
 
@@ -159,6 +151,9 @@ class FindGoodModel:
 
     def get_graph(self):
         return self.graph
+
+    def get_sem_im(self):
+        return self.sem_im
 
     def print_lines(self, lines):
         self.header()
@@ -170,12 +165,11 @@ class FindGoodModel:
         print(str, flush=True)
 
     def table_line(self, alg, param):
-        global num_test_indep
         graph = self.get_model(alg, param)
 
-        data_java = translate.pandas_data_to_tetrad(self.train)
+        data_java = translate.pandas_data_to_tetrad(self.test)
 
-        ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, num_params \
+        ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, avgsd, avgminsd, avgmaxsd, num_params \
             = self.accuracy(self.graph, graph, data_java)
 
         test_java = translate.pandas_data_to_tetrad(self.test)
@@ -184,7 +178,7 @@ class FindGoodModel:
             = self.markov_check(graph, test_java, self.params)
 
         try:
-            stats = get_stats(self.test, graph)
+            stats = self.get_stats(self.test, graph)
             cfi = stats["CFI"]
             nfi = stats["NFI"]
             nnfi = stats["NNFI"]
@@ -192,12 +186,6 @@ class FindGoodModel:
             cfi = float('nan')
             nfi = float('nan')
             nnfi = float('nan')
-
-        # print((f"CFI: {stats["CFI"]:7.4f}"))
-        # print((f"NFI: {stats["NFI"]:7.4f}"))
-        # print((f"NNFI: {stats["NNFI"]:7.4f}"))
-
-        # print("\n".join([f"{stat.ljust(14)}:\t{stats[stat]}" for stat in stats]))
 
         edges = graph.getNumEdges()
 
@@ -208,7 +196,7 @@ class FindGoodModel:
                 f" {a2Star:8.4f} {p_ad:8.4f} {kl_div:8.4f}  "
                 f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  "
                 f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} "
-                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f}")
+                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f}  {avgsd:5.4f}  {avgminsd:7.4f}  {avgmaxsd:7.4f}")
 
         return graph, p_ad, frac_dep_null, edges, line, graph, data_java
 
@@ -216,16 +204,16 @@ class FindGoodModel:
         str = (
             f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad    kldiv   |alpha|"
             f"           bic    cfi     nfi    nnfi  [TRUTH-->]  |G*|      ap     ar    ahp    ahr"
-            f"     f1    f0.5   f2.0")
+            f"     f1    f0.5   f2.0  avgsd avgminsd avgmaxsd")
         self.my_print(str)
         self.my_print('-' * len(str))
 
-    # paramValue is a range of values for the parameter being used. For score-based
-    # algorithms it will be penalty discount; for constraint-based it will be alpha.
-    def get_model(self, alg, paramValue):
-        return tetrad_graph.EdgeListGraph()
+        # paramValue is a range of values for the parameter being used. For score-based
+        # algorithms it will be penalty discount; for constraint-based it will be alpha.
+        # def get_model(self, alg, paramValue):
+        #     return tetrad_graph.EdgeListGraph()
 
-    # Could also use pchc::bnmat(a$dag)
+        # Could also use pchc::bnmat(a$dag)
     def pchc_graph(self, a, nodes):
         dag = a.rx2('dag')
         graph = tetrad_graph.EdgeListGraph(nodes)
@@ -276,12 +264,28 @@ class FindGoodModel:
         fb2.setBeta(2)
         f_beta_2_adj = fb2.getValue(true_comparison_graph, est_comparison_graph, data)
 
+        avgsd = np.nan
+        avgminsd = np.nan
+        avgmaxsd = np.nan
+
+        import traceback
+
+        if self.sem_im != None:
+            try:
+                ida_check = tetrad_search.IdaCheck(est_comparison_graph, data, self.sem_im)
+                avgsd = ida_check.getAverageSquaredDistance(ida_check.getOrderedPairs())
+                avgminsd = ida_check.getAvgMinSquaredDiffEstTrue(ida_check.getOrderedPairs())
+                avgmaxsd = ida_check.getAvgMaxSquaredDiffEstTrue(ida_check.getOrderedPairs())
+            except Exception as e:
+                print("An error occurred:", str(e))
+                print(traceback.format_exc())
+
         if self.sim_type == 'anclg':
             num_params = est_graph.getNumEdges()
         else:
             num_params = statistic.NumParametersEst().getValue(true_comparison_graph, est_comparison_graph, data)
 
-        return ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, num_params
+        return ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, avgsd, avgminsd, avgmaxsd, num_params
 
     def markov_check(self, graph, data, params):
         cpdag = self.cpdag(graph)
@@ -303,10 +307,8 @@ class FindGoodModel:
         results = mc.getResults(True)
         p_values = mc.getPValues(results)
 
-        import numpy as np
-
         # Calculate KL-divergence
-        bins = 10
+        bins = 20
 
         dist = np.histogram(p_values, bins)[0] / len(p_values)
 
@@ -317,10 +319,6 @@ class FindGoodModel:
 
         return cpdag, a2Star, p_ad, kldiv, fd_indep, num_tests_indep, num_test_dep
 
-    def rule1(self, line, p_ad):
-        if p_ad >= self.alpha:
-            self.passing_unif.append(line)
-
     def construct_graph(self, g, nodes, cpdag=True):
         graph = tetrad_graph.EdgeListGraph(nodes)
         for i, a in enumerate(nodes):
@@ -328,40 +326,6 @@ class FindGoodModel:
                 if g[i, j]: graph.addDirectedEdge(b, a)
         if cpdag: graph = tetrad_graph.GraphTransforms.dagToCpdag(graph)
         return graph
-
-    def make_data_cont_tetrad(self, num_nodes, avg_deg, num_latents, sample_size):
-        """
-        Picks a random graph and generates data from it.
-        :param num_nodes: The number of nodes in the graph.
-        :param avg_deg: The average degree of the graph.
-        :param num_latents: The number of latent variables in the graph.
-        :param sample_size: The number of samples to generate.
-        :return: The data, nodes, graph, number of nodes, and average degree.
-        """
-        if avg_deg == 0: avg_deg = 1
-
-        params = Parameters()
-        params.set(Params.NUM_MEASURES, num_nodes)
-        params.set(Params.AVG_DEGREE, avg_deg)
-        params.set(Params.SAMPLE_SIZE, sample_size * 2)
-        params.set(Params.DIFFERENT_GRAPHS, False)
-        params.set(Params.NUM_RUNS, 2)
-        params.set(Params.NUM_LATENTS, num_latents)
-
-        if (self.sim_type == 'exp'):
-            params.set(Params.SIMULATION_ERROR_TYPE, 3)
-            params.set(Params.SIMULATION_PARAM1, 1)
-
-        _sim = simulation.SemSimulation(algcomparison_graph.RandomForward())
-        _sim.createData(params, False)
-        data_java = _sim.getDataModel(0)
-        graph = _sim.getTrueGraph(0)
-        nodes = data_java.getVariables()
-
-        data = translate.tetrad_data_to_pandas(data_java)
-        data = data.astype({col: "float64" for col in data.columns})
-
-        return (data, nodes, graph, num_nodes, avg_deg)
 
     def make_data_cont_dao(self, num_nodes, avg_deg, num_latents, sample_size):
         """
@@ -386,7 +350,7 @@ class FindGoodModel:
         R, B, O = dao.corr(g)
 
         if (self.sim_type == 'exp'):
-            X = dao.simulate(B, O, n, err=lambda *x: numpy.random.exponential(x[0], x[1]))
+            X = dao.simulate(B, O, n, err=lambda *x: np.random.exponential(x[0], x[1]))
         else :
             X = dao.simulate(B, O, n)
 
@@ -395,7 +359,7 @@ class FindGoodModel:
         num_columns = X.shape[1]  # Number of columns in the array
         column_names = [f'X{i+1}' for i in range(num_columns)]
 
-        df = pandas.DataFrame(X, columns=column_names)
+        df = pd.DataFrame(X, columns=column_names)
 
         cols = df.columns
 
@@ -404,31 +368,14 @@ class FindGoodModel:
             nodes.add(tetrad_data.ContinuousVariable(str(col)))
 
         graph = self.construct_graph(g, nodes)
-        return (df, nodes, graph, num_nodes, avg_deg)
+        dag = self.construct_graph(g, nodes, cpdag = False)
 
-    def cpdag(self, graph):
-        return None
+        # Construct the SEM IM given graph and
+        cov = tetrad_data.CovarianceMatrix(nodes, R,  n)
+        sem_pm = tetrad_sem.SemPm(dag)
+        sem_im = tetrad_sem.SemIm(sem_pm, cov)
 
-# A class used to find a good model based on given parameters for continuous data.
-class FindGoodModelContinuous(FindGoodModel):
-    """
-    A class used to find a good model based on given parameters for continuous data. Wraps the FindGoodModel class.
-    :param FindGoodModel: The parent class.
-    """
-
-    # sim_type can be 'lg' or 'exp'
-    def __init__(self, location, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg'):
-        super().__init__(location, num_nodes, avg_degree, num_latents, sample_size, sim_type)
-
-        self.file = file
-
-        data, nodes, graph, num_nodes, avg_deg = self.make_data_cont_dao(num_nodes, avg_degree, 0, sample_size)
-        self.train, self.test = train_test_split(data, test_size=.5)  # , random_state=42)
-
-        self.train_java = translate.pandas_data_to_tetrad(self.train)
-        self.train_numpy = self.train.to_numpy()
-
-        self.graph = graph
+        return df, nodes, graph, num_nodes, avg_deg, sem_im
 
     def get_model(self, alg, paramValue):
         _search = TetradSearch.TetradSearch(self.train)
@@ -469,7 +416,7 @@ class FindGoodModelContinuous(FindGoodModel):
             bge = self.bidag.scoreparameters("bge", numpy2rpy(self.train_numpy), bgepar=ListVector({"am": 1.0}))
             itmcmc = self.bidag.iterativeMCMC(scorepar=bge, softlimit=9, hardlimit=12, alpha=self.alpha,
                                               verbose=False)
-            cpdag = self.construct_graph(numpy.array(self.base.as_matrix(itmcmc[1]), dtype=int).T, nodes, True)
+            cpdag = self.construct_graph(np.array(self.base.as_matrix(itmcmc[1]), dtype=int).T, nodes, True)
             return cpdag
         elif alg == 'dagma':
             model = DagmaLinear(loss_type='l2')  # create a linear model with least squares loss
@@ -490,7 +437,7 @@ class FindGoodModelContinuous(FindGoodModel):
         penalties = [10.0, 5.0, 4.0, 3, 2.5, 2, 1.75, 1.5, 1.25, 1]
         alphas = [0.001, 0.01, 0.05, 0.1, 0.2]
 
-        for num_nodes in range(5, 31, 5): # 5, 10, 15, 20, 25, 30
+        for num_nodes in range(5, 30 + 1, 5): # 5, 10, 15, 20, 25, 30
             for avg_degree in range(1, 6 + 1): # 1, 2, 3, 4, 5
                 if avg_degree > num_nodes - 1:
                     continue
@@ -499,30 +446,30 @@ class FindGoodModelContinuous(FindGoodModel):
                 if not os.path.exists(f'{self.location}/{dir}'):
                     os.makedirs(f'{self.location}/{dir}')
 
+                if os.path.exists(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt'):
+                    continue
+
                 with (open(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt', 'w') as file,
                       open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt',
                            'w') as graph_file,
                       open(f'{self.location}/{dir}/train_{num_nodes}_{avg_degree}.txt',
                            'w') as train_file,
                       open(f'{self.location}/{dir}/test_{num_nodes}_{avg_degree}.txt', 'w') as test_file):
-                    find = FindGoodModelContinuous(self.location, file, num_nodes, avg_degree, 0, 1000, self.sim_type)
+                    find = FindGoodModel(self.location, file, num_nodes, avg_degree, 0, 1000, self.sim_type)
 
                     # print parameter defs and header
                     find.print_parameter_defs()
                     find.header()
 
                     # go through algorithms and parameter choices and save the best lines (print all lines)
-                    find.save_best_lines('lingam', [0])
-                    find.save_best_lines('dagma', [0.1, 0.2, 0.3])
-                    find.save_best_lines('pc', alphas)
-                    find.save_best_lines('cpc', alphas)
-                    find.save_best_lines('fges', penalties)
-                    find.save_best_lines('grasp', penalties)
-                    find.save_best_lines('boss', penalties)
-                    find.save_best_lines('bidag', [0])
-
-                    find.print_info('Choices passing Markov:')
-                    find.print_lines(find.get_passing_unif())
+                    find.save_lines('lingam', [0])
+                    find.save_lines('dagma', [0.1, 0.2, 0.3])
+                    find.save_lines('pc', alphas)
+                    find.save_lines('cpc', alphas)
+                    find.save_lines('fges', penalties)
+                    find.save_lines('grasp', penalties)
+                    find.save_lines('boss', penalties)
+                    find.save_lines('bidag', [0])
 
                     train = translate.pandas_data_to_tetrad(find.get_train())
                     test = translate.pandas_data_to_tetrad(find.get_test())
@@ -534,154 +481,12 @@ class FindGoodModelContinuous(FindGoodModel):
                     print(train, file=train_file)
                     print(test, file=test_file)
 
-# A class used to find a good model based on given parameters for multinomial data.
-class FindGoodModelMultinomial(FindGoodModel):
-    """
-    A class used to find a good model based on given parameters for multinomial data.
-    """
+output_dir = 'alg_output'
 
-    def __init__(self, location, file=None, num_nodes=10, avg_degree=4, num_latents=0, sample_size=1000):
-        super().__init__(location, num_nodes, avg_degree, num_latents, sample_size, 'mn')
+# Create the output directory if it does not exist
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
-        self.file = file
-
-        data, nodes, graph, num_nodes, avg_deg = self.make_data_mn(num_nodes, avg_degree, sample_size)
-        self.train, self.test = train_test_split(data, test_size=.5)  # , random_state=42)
-
-        self.train_java = translate.pandas_data_to_tetrad(self.train)
-        self.train_numpy = self.train.to_numpy()
-
-        self.graph = graph
-
-    def make_data_mn(self, num_nodes, avg_deg, sample_size):
-        if avg_deg == 0: avg_deg = 1
-
-        params = Parameters()
-        params.set(Params.NUM_MEASURES, num_nodes)
-        params.set(Params.AVG_DEGREE, avg_deg)
-        params.set(Params.SAMPLE_SIZE, sample_size * 2)
-
-        params.set(Params.DIFFERENT_GRAPHS, False)
-        params.set(Params.NUM_RUNS, 1)
-
-        _sim = simulation.BayesNetSimulation(algcomparison_graph.RandomForward())
-        _sim.createData(params, False)
-        data_java = _sim.getDataModel(0)
-        graph = _sim.getTrueGraph(0)
-        nodes = data_java.getVariables()
-
-        data_java = tetrad_data.DataTransforms.convertNumericalDiscreteToContinuous(data_java)
-        data = translate.tetrad_data_to_pandas(data_java)
-
-        rows, cols = data.shape
-
-        for j in range(0, cols):
-            column_name = data.columns[j]
-            min_value = data[column_name].min()
-            data[column_name] -= min_value
-
-        return (data, nodes, graph, num_nodes, avg_deg)
-
-    def get_model(self, alg, paramValue):
-        _search = TetradSearch.TetradSearch(self.train)
-        _search.set_verbose(False)
-
-        nodes = util.ArrayList()
-
-        for col in self.train.columns:
-            nodes.add(tetrad_graph.GraphNode(col))
-
-        if alg == 'fges':
-            _search.use_bdeu(sample_prior=paramValue, structure_prior=self.structure_prior)
-            _search.run_fges(faithfulness_assumed=False)
-        elif alg == 'boss':
-            _search.use_bdeu(sample_prior=paramValue, structure_prior=self.structure_prior)
-            _search.run_boss()
-        elif alg == 'grasp':
-            _search.use_bdeu(sample_prior=paramValue, structure_prior=self.structure_prior)
-            _search.use_chi_square(0.05)
-            _search.run_grasp()
-        elif alg == 'sp':
-            _search.use_bdeu(sample_prior=paramValue, structure_prior=self.structure_prior)
-            _search.run_sp()
-        elif alg == 'pc':
-            _search.use_chi_square(paramValue)
-            _search.run_pc()
-        elif alg == 'cpc':
-            _search.use_chi_square(paramValue)
-            _search.run_cpc()
-        elif alg == 'bidag':
-            bge = self.bidag.scoreparameters("bge", numpy2rpy(self.train_numpy), bgepar=ListVector({"am": 1.0}))
-            a = self.bidag.iterativeMCMC(scorepar=bge, softlimit=9, hardlimit=12, alpha=self.alpha,
-                                         verbose=False)
-            cpdag = self.construct_graph(numpy.array(self.base.as_matrix(a[1]), dtype=int).T, nodes, True)
-            return cpdag
-        elif alg == 'mmhc':
-            data = self.train_numpy.astype(numpy.int32)
-            a = self.pchc.mmhc(numpy2rpy(data), method='cat', score='bde')
-            return self.pchc_graph(a, nodes)
-        elif alg == 'pchc':
-            data = self.train_numpy.astype(numpy.int32)
-            a = self.pchc.pchc(numpy2rpy(data), method='cat', score='bde')
-            return self.pchc_graph(a, nodes)
-        else:
-            raise Exception('Unrecognized alg name: ' + alg)
-
-        return _search.get_java()
-
-    def cpdag(self, graph):
-        return graph.paths().isLegalCpdag()
-
-    def maps(self):
-        dir = f'markov_check_{self.sim_type}'
-
-        for num_nodes in range(5, 31, 5):
-            for avg_degree in range(1, 6 + 1):
-                if avg_degree > num_nodes - 1:
-                    continue
-
-                # Create the output directory if it does not exist
-                if not os.path.exists(f'{self.location}/{dir}'):
-                    os.makedirs(f'{self.location}/{dir}')
-
-                with (open(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt', 'w') as file,
-                      open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt',
-                           'w') as graph_file,
-                      open(f'{self.location}/{dir}/train_{num_nodes}_{avg_degree}.txt',
-                           'w') as train_file,
-                      open(f'{self.location}/{dir}/test_{num_nodes}_{avg_degree}.txt', 'w') as test_file):
-                    find = FindGoodModelMultinomial(self.location, file, num_nodes, avg_degree, 0, 1000)
-
-                    # print parameter defs and header
-                    find.print_parameter_defs()
-                    find.header()
-
-                    alphas = [0.001, 0.01, 0.05, 0.1]
-                    prior_equivalent = [1, 2, 5, 10]
-
-                    # go through algorithms and parameter choices and save the best lines (print all lines)
-                    find.save_best_lines('pc', alphas)
-                    find.save_best_lines('cpc', alphas)
-                    find.save_best_lines('fges', prior_equivalent)
-                    find.save_best_lines('grasp', prior_equivalent)
-                    find.save_best_lines('boss', prior_equivalent)
-                    find.save_best_lines('mmhc', [0])
-
-                    try:
-                        find.save_best_lines('pchc', [0])
-                    except Exception:
-                        print("Can't run pchc")
-
-                    find.print_info('Choices passing Markov:')
-                    find.print_lines(find.get_passing_unif())
-
-                    train = translate.pandas_data_to_tetrad(find.get_train())
-                    test = translate.pandas_data_to_tetrad(find.get_test())
-                    graph = find.get_graph()
-
-                    print(graph, file=graph_file)
-                    print(train, file=train_file)
-                    print(test, file=test_file)
-
-
+# Run the desired simulation--uncomment the desired line
+FindGoodModel(output_dir, sim_type='lg').maps()
 

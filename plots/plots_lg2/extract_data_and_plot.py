@@ -98,7 +98,7 @@ def generate_plot(df, file_name, output_file='plot.png', transparency=0.7):
     plt.show()
 
 # Test case for a single file
-file_path = "../../alg_output/markov_check_lg/result_25_4.txt"
+file_path = "../../alg_output/markov_check_lg1/result_25_4.txt"
 df = extract_first_dataset(file_path)
 
 print(df)
