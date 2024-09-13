@@ -174,7 +174,7 @@ class FindGoodModel():
 
         test_java = translate.pandas_data_to_tetrad(self.test)
 
-        cpdag, a2Star, p_ad, kl_div, frac_dep_null, num_test_indep, num_test_dep \
+        cpdag, a2Star, p_ad, p_ks, kl_div, frac_dep_null, num_test_indep, num_test_dep \
             = self.markov_check(graph, test_java, self.params)
 
         try:
@@ -193,7 +193,7 @@ class FindGoodModel():
 
         line = (f"{alg:14} {param:8.3f}  {self.graph.getNumNodes():5}    {edges:3}    {num_params:7.0f}"
                 f" {cpdag:6} {num_test_indep:9} "
-                f" {a2Star:8.4f} {p_ad:8.4f} {kl_div:8.4f}  "
+                f" {a2Star:8.4f} {p_ad:8.4f} {p_ks:8.4f} {kl_div:8.4f}  "
                 f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  "
                 f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} "
                 f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f}  {avgsd:5.4f}  {avgminsd:7.4f}  {avgmaxsd:7.4f}")
@@ -202,7 +202,7 @@ class FindGoodModel():
 
     def header(self):
         str = (
-            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad    kldiv   |alpha|"
+            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad     p_ks    kldiv   |alpha|"
             f"           bic    cfi     nfi    nnfi  [TRUTH-->]  |G*|      ap     ar    ahp    ahr"
             f"     f1    f0.5   f2.0  avgsd avgminsd avgmaxsd")
         self.my_print(str)
@@ -301,6 +301,7 @@ class FindGoodModel():
         mc.generateResults(True)
         a2Star = mc.getAndersonDarlingA2Star(True)
         p_ad = mc.getAndersonDarlingP(True)
+        p_ks = mc.getKsPValue(True)
         fd_indep = mc.getFractionDependent(True)
         num_tests_indep = mc.getNumTests(True)
         num_test_dep = mc.getNumTests(False)
@@ -317,7 +318,7 @@ class FindGoodModel():
 
         kldiv = np.mean(dist * np.log(np.clip(dist, 1e-6, 1) / unif)) # dist could be 0 :-(
 
-        return cpdag, a2Star, p_ad, kldiv, fd_indep, num_tests_indep, num_test_dep
+        return cpdag, a2Star, p_ad, p_ks, kldiv, fd_indep, num_tests_indep, num_test_dep
 
     def construct_graph(self, g, nodes, cpdag=True):
         graph = tetrad_graph.EdgeListGraph(nodes)
@@ -446,14 +447,15 @@ class FindGoodModel():
                 if not os.path.exists(f'{self.location}/{dir}'):
                     os.makedirs(f'{self.location}/{dir}')
 
-                if os.path.exists(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt'):
+                result_file = f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt'
+
+                if os.path.exists(result_file):
+                    print("result file exists: " + result_file)
                     continue
 
-                with (open(f'{self.location}/{dir}/result_{num_nodes}_{avg_degree}.txt', 'w') as file,
-                      open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt',
-                           'w') as graph_file,
-                      open(f'{self.location}/{dir}/train_{num_nodes}_{avg_degree}.txt',
-                           'w') as train_file,
+                with (open(result_file, 'w') as file,
+                      open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt', 'w') as graph_file,
+                      open(f'{self.location}/{dir}/train_{num_nodes}_{avg_degree}.txt', 'w') as train_file,
                       open(f'{self.location}/{dir}/test_{num_nodes}_{avg_degree}.txt', 'w') as test_file):
                     find = FindGoodModel(self.location, file, num_nodes, avg_degree, 0, 1000, self.sim_type)
 
@@ -480,6 +482,11 @@ class FindGoodModel():
                     print(graph, file=graph_file)
                     print(train, file=train_file)
                     print(test, file=test_file)
+
+                    file.close()
+                    graph_file.close()
+                    train_file.close()
+                    test_file.close()
 
 output_dir = 'alg_output'
 
