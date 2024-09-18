@@ -2,8 +2,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-ALPHA = 0.05
-
 def extract_first_dataset(file_path):
     with open(file_path, 'r') as file:
         lines = file.readlines()
@@ -49,83 +47,62 @@ import matplotlib.ticker as mticker
 import matplotlib.ticker as mticker
 from matplotlib.ticker import ScalarFormatter
 
-def generate_plot(df, file_name, x_var, y_var, output_file='plot.png', transparency=0.7, USE_KS=False):
+def generate_plot(df, file_name, x_var, y_var, alg_var = 'alg', p_value_var = 'p_ad', alpha = 0.05,
+                  output_file='plot.png', transparency=0.7):
+
+    # Convert x_var, y_var, and p_value_var to numeric, coercing errors to NaN
+    df[x_var] = pd.to_numeric(df[x_var], errors='coerce')
+    df[y_var] = pd.to_numeric(df[y_var], errors='coerce')
+    df[p_value_var] = pd.to_numeric(df[p_value_var], errors='coerce')
+
+    # Drop rows where x_var, y_var, or alg_var contains NaN
+    df_clean = df.dropna(subset=[x_var, y_var, alg_var, p_value_var])
+
     # Create a color palette for the unique algorithms
-    unique_algs = df['alg'].unique()
+    unique_algs = df_clean[alg_var].unique()
     palette = sns.color_palette("hsv", len(unique_algs))
     color_map = {alg: palette[i] for i, alg in enumerate(unique_algs)}
 
-    # Choose the column based on the USE_KS parameter
-    p_value_column = 'p_ks' if USE_KS else 'p_ad'
-
-    # Convert the selected p-value column to numeric, forcing errors to NaN
-    df[p_value_column] = pd.to_numeric(df[p_value_column], errors='coerce')
-
-    # Plot the data
+    # Create a simple scatter plot
     plt.figure(figsize=(8, 6))
 
-    # Define the markers
-    marker_above_threshold = '*'  # Star for p > ALPHA
-    marker_below_threshold = 'o'  # Circle for p <= ALPHA
+    # Define markers
+    marker_above_threshold = '*'  # Star for p_ad > ALPHA
+    marker_below_threshold = 'o'  # Circle for p_ad <= ALPHA
     larger_marker_size = 150  # Set a larger marker size for stars
 
-    # Use color coding and different markers based on the selected p-value condition
+    # Plot each algorithm with its own color
     for alg in unique_algs:
-        subset = df[df['alg'] == alg]
+        subset = df_clean[df_clean[alg_var] == alg]
 
-        # Ensure the selected p-value column is numeric and handle NaN
-        above_threshold = subset[subset[p_value_column] > ALPHA].dropna(subset=[p_value_column])
-        below_threshold = subset[subset[p_value_column] <= ALPHA].dropna(subset=[p_value_column])
+        # Separate the points by p_value threshold
+        above_threshold = subset[subset[p_value_var] > alpha]
+        below_threshold = subset[subset[p_value_var] <= alpha]
 
-        # Plot points where p <= ALPHA with circle markers if there are any
+        # Plot points where p_ad <= ALPHA with circle markers
         if not below_threshold.empty:
-            plt.scatter(below_threshold[x_var], below_threshold[y_var], label=f"{alg} ({p_value_column} ≤ {ALPHA})",
+            plt.scatter(below_threshold[x_var], below_threshold[y_var], label=f"{alg} (p_ad ≤ {alpha})",
                         color=color_map[alg], marker=marker_below_threshold, alpha=transparency)
 
-        # Plot points where p > ALPHA with star markers if there are any
+        # Plot points where p_ad > ALPHA with star markers
         if not above_threshold.empty:
-            plt.scatter(above_threshold[x_var], above_threshold[y_var], label=f"{alg} ({p_value_column} > {ALPHA})",
+            plt.scatter(above_threshold[x_var], above_threshold[y_var], label=f"{alg} (p_ad > {alpha})",
                         color=color_map[alg], marker=marker_above_threshold, s=larger_marker_size, alpha=transparency)
 
-    # Label each point with only 'param' without trailing zeros
-    for i in range(len(df)):
-        param_cleaned = str(df['param'][i]).rstrip('0').rstrip('.')
-        plt.text(df[x_var][i], df[y_var][i], param_cleaned, fontsize=9, color=color_map[df['alg'][i]])
-
     # Set labels and title
-    plot_title = os.path.splitext(os.path.basename(file_name))[0]  # Get the file name without extension
     plt.xlabel(x_var)
     plt.ylabel(y_var)
-    plt.title(f'Plot of {y_var} against {x_var} for {plot_title}')
+    plt.title(f'Scatterplot of {y_var} vs {x_var} for {file_name}')
 
-    # Set X and Y axes to scientific notation and adjust limits
-    ax = plt.gca()  # Get current axis
+    # Add a legend to show which color corresponds to each algorithm and p_ad condition
+    plt.legend(title=alg_var)
 
-    # Limit the number of ticks on the X and Y axes
-    ax.xaxis.set_major_locator(mticker.MaxNLocator(5))  # Set max 5 ticks on X-axis
-    ax.yaxis.set_major_locator(mticker.MaxNLocator(5))  # Set max 5 ticks on Y-axis
-
-    # Ensure consistent formatting for the Y-axis
-    ax.yaxis.set_major_formatter(ScalarFormatter())
-    ax.yaxis.get_major_formatter().set_scientific(False)
-    ax.yaxis.get_major_formatter().set_useOffset(False)
-
-    # Add a legend to show which color corresponds to each algorithm and marker for p-value condition
-    plt.legend(title='Algorithm', bbox_to_anchor=(1.05, 1), loc='upper left')
-
-    # Show plot
+    # Show the plot
     plt.tight_layout()
     plt.savefig(output_file)
     plt.show()
+# Example usage:
+# df = pd.read_csv('your_data.csv')  # Replace with your data source
+# simple_scatterplot(df, 'x_column_name', 'y_column_name')
 
-# # Test case for a single file
-# file_path = "../../alg_output/markov_check_lg1/result_25_4.txt"
-# df = extract_first_dataset(file_path)
-#
-# print(df)
-#
-# print(df)
-#
-# print(df.columns)
-#
-# generate_plot(df, "result_25_4")
+
