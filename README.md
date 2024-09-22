@@ -8,7 +8,17 @@ We provide a method to simulate data from a DAG, run various algorithms on the d
 
 This does not reproduce the results in the paper, but provides code to generate new examples of the same sort. The exact results in the paper are not reproducible because the data is generated randomly and analyzed on different platforms (Java, Python, and R). However the exact simulation results shown in our paper are included in this repository.
 
-The installation procedure is a bit complicated, since as mentioned above, the code runs on three different platforms. The main script is `main.py`, which runs the simulation. The user should uncomment the desired simulation in this script and run it. The simulation results are saved in the `alg_output` directory.
+The installation procedure is a bit complicated, since the code runs on three different platforms. The main script for running the simulation is 
+
+```
+markov_check_simulation.py
+```
+
+This is modified to run the algorithms on a specific dataset in the script, 
+
+```
+markov_check_dataset.py
+```
 
 ## Installation
 
@@ -62,15 +72,3 @@ nickname       Eye Holes
 Python 3.12.1 (v3.12.1:2305ca5144, Dec  7 2023, 17:23:38) [Clang 13.0.0 (clang-1300.0.29.30)] on darwin
 For Java: amazon-corretto-21-aarch64, Tetrad 7.6.5
 ```
-
-## Usage
-
-The main Python script is `markov_checker_simulation.py`. This script can be run from the command line with the following arguments:
-
-```
-python main.py
-```
-
-The user should uncomment the desired simulation in this script and run it. This spews forth much text, but the formatted simulation results are saved in the `alg_output` directory.
-
-Each simulated dataset is saved in this directory, along with the CPDAGs and DAGs obtained from the various algorithms. The Markov condition is checked on these CPDAGs and DAGs with respect to the data, along with the analysis results.
