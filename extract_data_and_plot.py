@@ -47,7 +47,7 @@ import matplotlib.ticker as mticker
 import matplotlib.ticker as mticker
 from matplotlib.ticker import ScalarFormatter
 
-def generate_plot(df, file_name, x_var, y_var, alg_var = 'alg', p_value_var = 'p_ad', alpha = 0.05,
+def generate_plot(df, file_name, x_var, y_var, alg_var = 'alg', p_value_var = 'p_ks', alpha = 0.05,
                   output_file='plot.png', transparency=0.7):
 
     # Convert x_var, y_var, and p_value_var to numeric, coercing errors to NaN
@@ -67,26 +67,29 @@ def generate_plot(df, file_name, x_var, y_var, alg_var = 'alg', p_value_var = 'p
     plt.figure(figsize=(8, 6))
 
     # Define markers
-    marker_above_threshold = '*'  # Star for p_ad > ALPHA
-    marker_below_threshold = 'o'  # Circle for p_ad <= ALPHA
+    marker_above_threshold = '*'  # Star for pvalue var > ALPHA
+    marker_below_threshold = 'o'  # Circle for pvalue var <= ALPHA
     larger_marker_size = 150  # Set a larger marker size for stars
 
     # Plot each algorithm with its own color
     for alg in unique_algs:
+        if alg == 'lingam': # Skip lingam because it doesn't target the linear Gaussian case.
+            continue
+
         subset = df_clean[df_clean[alg_var] == alg]
 
         # Separate the points by p_value threshold
         above_threshold = subset[subset[p_value_var] > alpha]
         below_threshold = subset[subset[p_value_var] <= alpha]
 
-        # Plot points where p_ad <= ALPHA with circle markers
+        # Plot points where p <= ALPHA with circle markers
         if not below_threshold.empty:
-            plt.scatter(below_threshold[x_var], below_threshold[y_var], label=f"{alg} (p_ad ≤ {alpha})",
+            plt.scatter(below_threshold[x_var], below_threshold[y_var], label=f"{alg} (p ≤ {alpha})",
                         color=color_map[alg], marker=marker_below_threshold, alpha=transparency)
 
-        # Plot points where p_ad > ALPHA with star markers
+        # Plot points where p > ALPHA with star markers
         if not above_threshold.empty:
-            plt.scatter(above_threshold[x_var], above_threshold[y_var], label=f"{alg} (p_ad > {alpha})",
+            plt.scatter(above_threshold[x_var], above_threshold[y_var], label=f"{alg} (p > {alpha})",
                         color=color_map[alg], marker=marker_above_threshold, s=larger_marker_size, alpha=transparency)
 
     # Set labels and title
@@ -94,12 +97,16 @@ def generate_plot(df, file_name, x_var, y_var, alg_var = 'alg', p_value_var = 'p
     plt.ylabel(y_var)
     plt.title(f'Scatterplot of {y_var} vs {x_var} for {file_name}')
 
-    # Add a legend to show which color corresponds to each algorithm and p_ad condition
+    # Add a legend to show which color corresponds to each algorithm and p value condition
     plt.legend(title=alg_var)
 
     # Show the plot
     plt.tight_layout()
-    plt.savefig(output_file)
+
+    if not os.path.exists(f'plots/plots_lg'):
+        os.makedirs(f'plots/plots_lg')
+
+    plt.savefig(f"plots/plots_lg/{output_file}")
     plt.show()
 # Example usage:
 # df = pd.read_csv('your_data.csv')  # Replace with your data source

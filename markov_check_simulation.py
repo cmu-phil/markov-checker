@@ -1,3 +1,92 @@
+# Description: This script runs the Markov algorithm and parameter selection (MAPS) simulation for the linear Gaussian
+# (lg) simulation type. The script calculates the CFI, NFI, and NNFI for a given model using lavaan. The script also
+# calculates the adjacency precision, adjacency recall, arrowhead precision, arrowhead recall, BIC, F1 adjacency, F1 all,
+# F0.5, F2.0, SHD, average squared distance, average minimum squared difference, and average maximum squared difference.
+# The script saves the results to a file in the specified output directory.
+#
+# The script uses the following parameters:
+# - location: The output directory for the results.
+# - file: The file to save the results to.
+# - num_nodes: The number of nodes in the graph.
+# - avg_degree: The average degree of the graph.
+# - num_latents: The number of latent variables in the graph.
+# - sample_size: The number of samples to generate.
+# - sim_type: The simulation type (lg).
+#
+# The script uses the following methods:
+# - get_stats: This script calculates the CFI, NFI, and NNFI for a given model using lavaan.
+# - save_lines: This script saves the results to a file in the specified output directory.
+# - print_info: This script prints the information to the console.
+# - print_parameter_defs: This script prints the parameter definitions to the console.
+# - get_train: This script gets the training data.
+# - get_test: This script gets the testing data.
+# - get_graph: This script gets the graph.
+# - get_sem_im: This script gets the SEM IM.
+# - print_lines: This script prints the lines to the console.
+# - my_print: This script prints the string to the console.
+# - table_line: This script creates a table line for the given algorithm and parameter.
+# - header: This script creates a header for the table.
+# - pchc_graph: This script creates a graph from the pchc algorithm.
+# - index: This script gets the index of the variable name.
+# - accuracy: This script calculates the accuracy of the model.
+# - markov_check: This script checks the Markov condition.
+# - construct_graph: This script constructs a graph from the given graph.
+# - bnl_to_tetrad: This script converts the BNL to a Tetrad graph.
+# - make_data_cont_dao: This script makes the continuous data using the DaO simulation package.
+# - get_model: This script gets the model for the given algorithm and parameter.
+# - cpdag: This script checks if the graph is a CPDAG.
+# - maps: This script runs the Markov algorithm and parameter selection (MAPS) simulation.
+#
+# The script uses the following R packages:
+# - base: This package provides basic functions in R.
+# - lavaan: This package provides functions for latent variable analysis.
+# - performance: This package provides functions for performance analysis.
+#
+# The script uses the following Java packages:
+# - edu.cmu.tetrad.search: This package provides functions for searching algorithms.
+# - edu.cmu.tetrad.graph: This package provides functions for graph algorithms.
+# - edu.cmu.tetrad.data: This package provides functions for data algorithms.
+# - edu.cmu.tetrad.sem: This package provides functions for SEM algorithms.
+# - edu.cmu.tetrad.util: This package provides utility functions.
+# - edu.cmu.tetrad.algcomparison.independence: This package provides functions for independence algorithms.
+# - edu.cmu.tetrad.algcomparison.statistic: This package provides functions for statistical algorithms.
+# - edu.cmu.tetrad.algcomparison.simulation: This package provides functions for simulation algorithms.
+# - edu.cmu.tetrad.algcomparison.graph: This package provides functions for graph algorithms.
+# - java.util: This package provides utility functions.
+#
+# The script uses the following R functions:
+# - ListVector: This function creates a list vector.
+# - numpy2rpy: This function converts a numpy array to an R array.
+# - default_converter: This function converts the default values.
+# - get_conversion: This function gets the conversion.
+# - converter: This function converts the values.
+# - importr: This function imports an R package.
+#
+# The script uses the following Python packages:
+# - numpy: This package provides functions for numerical computing.
+# - pandas: This package provides functions for data manipulation.
+# - train_test_split: This function splits the data into training and testing sets.
+# - DirectLiNGAM: This class provides functions for the DirectLiNGAM algorithm.
+# - DagmaLinear: This class provides functions for the DagmaLinear algorithm.
+#
+# The script uses the following Tetrad packages:
+# - Params: This package provides parameters for the algorithms.
+# - Parameters: This package provides parameters for the algorithms.
+# - LinearFisherModel: This package provides functions for the linear Fisher model.
+# - RandomForward: This package provides functions for the random forward algorithm.
+# - ContinuousVariable: This package provides functions for continuous variables.
+# - DiscreteVariable: This package provides functions for discrete variables.
+# - GraphNode: This package provides functions for graph nodes.
+# - EdgeListGraph: This package provides functions for edge list graphs.
+# - GraphTransforms: This package provides functions for graph transforms.
+# - DagToCpdag: This package provides functions for converting a DAG to a CPDAG.
+# - SemPm: This package provides functions for SEM PM.
+# - SemIm: This package provides functions for SEM IM.
+# - CovarianceMatrix: This package provides functions for covariance matrices.
+# - IdaCheck: This package provides functions for the IdaCheck algorithm.
+# - GraphUtils: This package provides utility functions for graphs.
+# - GraphSaveLoadUtils: This package provides functions for saving and loading graphs.
+
 import os
 import sys
 
@@ -10,10 +99,11 @@ sys.path.append(BASE_DIR)
 
 # Start the JVM and import the necessary Java packages
 import jpype.imports
+
 jpype.startJVM("-Xmx20g", classpath=[f"{BASE_DIR}/resources/tetrad-current.jar"])
 
-import tools.TetradSearch as TetradSearch
-import tools.translate as translate
+import pytetrad_tools.TetradSearch as TetradSearch
+import pytetrad_tools.translate as translate
 import java.util as util
 import edu.cmu.tetrad.search as tetrad_search
 import edu.cmu.tetrad.graph as tetrad_graph
@@ -40,6 +130,7 @@ from rpy2.robjects.packages import importr
 base = importr("base")
 lavaan = importr("lavaan")
 performance = importr("performance")
+
 
 class FindGoodModel():
 
@@ -70,6 +161,7 @@ class FindGoodModel():
 
         self.base = importr('base')
         self.bidag = importr('BiDAG')
+        self.pchc = importr("pchc")
 
         self.structure_prior = 0
 
@@ -87,9 +179,19 @@ class FindGoodModel():
 
         self.train_java = translate.pandas_data_to_tetrad(self.train)
         self.train_numpy = self.train.to_numpy()
+        self.nodes = self.train_java.getVariables()
 
         self.graph = graph
         self.sem_im = sem_im
+
+        self.dagma_l1 = 0.03
+        self.dagma_w = 0.1
+        self.dagma_T = 5
+
+        self.mmhc_max_k = 10
+
+        self.mmhc_starts = 10
+        self.pchc_starts = 10
 
     # This script calculates the CFI, NFI, and NNFI for a given model using lavaan.
     def get_stats(self, df, graph):
@@ -169,7 +271,7 @@ class FindGoodModel():
 
         data_java = translate.pandas_data_to_tetrad(self.test)
 
-        ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, avgsd, avgminsd, avgmaxsd, num_params \
+        ap, ar, ahp, ahr, bic, f1_adj, f1_all, f_beta_point5_adj, f_beta_2_adj, shd, avgsd, avgminsd, avgmaxsd, num_params \
             = self.accuracy(self.graph, graph, data_java)
 
         test_java = translate.pandas_data_to_tetrad(self.test)
@@ -195,8 +297,8 @@ class FindGoodModel():
                 f" {cpdag:6} {num_test_indep:9} "
                 f" {a2Star:8.4f} {p_ad:8.4f} {p_ks:8.4f} {kl_div:8.4f}  "
                 f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  "
-                f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} "
-                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f}  {avgsd:5.4f}  {avgminsd:7.4f}  {avgmaxsd:7.4f}")
+                f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} {f1_all:6.4f} "
+                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f} {shd:6}  {avgsd:5.4f}  {avgminsd:7.4f}  {avgmaxsd:7.4f}")
 
         return graph, p_ad, frac_dep_null, edges, line, graph, data_java
 
@@ -204,7 +306,7 @@ class FindGoodModel():
         str = (
             f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad     p_ks    kldiv   |alpha|"
             f"           bic    cfi     nfi    nnfi  [TRUTH-->]  |G*|      ap     ar    ahp    ahr"
-            f"     f1    f0.5   f2.0  avgsd avgminsd avgmaxsd")
+            f"     f1 f1_all    f0.5   f2.0    shd   avgsd avgminsd avgmaxsd")
         self.my_print(str)
         self.my_print('-' * len(str))
 
@@ -214,6 +316,7 @@ class FindGoodModel():
         #     return tetrad_graph.EdgeListGraph()
 
         # Could also use pchc::bnmat(a$dag)
+
     def pchc_graph(self, a, nodes):
         dag = a.rx2('dag')
         graph = tetrad_graph.EdgeListGraph(nodes)
@@ -244,12 +347,8 @@ class FindGoodModel():
     def accuracy(self, true_graph, est_graph, data):
         est_graph = tetrad_graph.GraphUtils.replaceNodes(est_graph, true_graph.getNodes())
 
-        if self.sim_type == 'anclg':
-            true_comparison_graph = tetrad_graph.GraphTransforms.dagToPag(true_graph)
-            est_comparison_graph = est_graph  # tg.GraphTransforms.dagToPag(est_graph)
-        else:
-            true_comparison_graph = tetrad_graph.GraphTransforms.dagToCpdag(true_graph)
-            est_comparison_graph = tetrad_graph.GraphTransforms.dagToCpdag(est_graph)
+        true_comparison_graph = tetrad_graph.GraphTransforms.dagToCpdag(true_graph)
+        est_comparison_graph = tetrad_graph.GraphTransforms.dagToCpdag(est_graph)
 
         ap = statistic.AdjacencyPrecision().getValue(true_comparison_graph, est_comparison_graph, data)
         ar = statistic.AdjacencyRecall().getValue(true_comparison_graph, est_comparison_graph, data)
@@ -257,6 +356,8 @@ class FindGoodModel():
         ahr = statistic.ArrowheadRecall().getValue(true_comparison_graph, est_comparison_graph, data)
         bic = statistic.BicEst().getValue(true_comparison_graph, est_comparison_graph, data)
         f1_adj = statistic.F1Adj().getValue(true_comparison_graph, est_comparison_graph, data)
+        f1_all = statistic.F1All().getValue(true_comparison_graph, est_comparison_graph, data)
+        shd = statistic.StructuralHammingDistance().getValue(true_comparison_graph, est_comparison_graph, data)
         fb1 = statistic.FBetaAdj()
         fb1.setBeta(0.5)
         f_beta_point5_adj = fb1.getValue(true_comparison_graph, est_comparison_graph, data)
@@ -285,7 +386,7 @@ class FindGoodModel():
         else:
             num_params = statistic.NumParametersEst().getValue(true_comparison_graph, est_comparison_graph, data)
 
-        return ap, ar, ahp, ahr, bic, f1_adj, f_beta_point5_adj, f_beta_2_adj, avgsd, avgminsd, avgmaxsd, num_params
+        return ap, ar, ahp, ahr, bic, f1_adj, f1_all, f_beta_point5_adj, f_beta_2_adj, shd, avgsd, avgminsd, avgmaxsd, num_params
 
     def markov_check(self, graph, data, params):
         cpdag = self.cpdag(graph)
@@ -296,7 +397,7 @@ class FindGoodModel():
         else:
             test = independence.FisherZ().getTest(data, params)
 
-        mc = tetrad_search.MarkovCheck(graph, test, tetrad_search.ConditioningSetType.LOCAL_MARKOV)
+        mc = tetrad_search.MarkovCheck(graph, test, tetrad_search.ConditioningSetType.ORDERED_LOCAL_MARKOV)
         mc.setPercentResample(self.percentResample)
         mc.generateResults(True)
         a2Star = mc.getAndersonDarlingA2Star(True)
@@ -316,7 +417,7 @@ class FindGoodModel():
         # Different fromm uniform?
         unif = np.array([1 / bins for _ in range(bins)])
 
-        kldiv = np.mean(dist * np.log(np.clip(dist, 1e-6, 1) / unif)) # dist could be 0 :-(
+        kldiv = np.mean(dist * np.log(np.clip(dist, 1e-6, 1) / unif))  # dist could be 0 :-(
 
         return cpdag, a2Star, p_ad, p_ks, kldiv, fd_indep, num_tests_indep, num_test_dep
 
@@ -326,6 +427,16 @@ class FindGoodModel():
             for j, b in enumerate(nodes):
                 if g[i, j]: graph.addDirectedEdge(b, a)
         if cpdag: graph = tetrad_graph.GraphTransforms.dagToCpdag(graph)
+        return graph
+
+    def bnl_to_tetrad(self, bnl, cpdag=True):
+        idx = {f"X{i + 1}": i for i in range(len(self.nodes))}
+        num_edges = len(bnl) // 2
+        edges = [(bnl[i], bnl[i + num_edges]) for i in range(num_edges)]
+        graph = tetrad_graph.EdgeListGraph(self.nodes)
+        for edge in edges:
+            graph.addDirectedEdge(self.nodes[idx[edge[0]]], self.nodes[idx[edge[1]]])
+        if cpdag: tetrad_graph.GraphTransforms.dagToCpdag(graph)
         return graph
 
     def make_data_cont_dao(self, num_nodes, avg_deg, num_latents, sample_size):
@@ -352,13 +463,13 @@ class FindGoodModel():
 
         if (self.sim_type == 'exp'):
             X = dao.simulate(B, O, n, err=lambda *x: np.random.exponential(x[0], x[1]))
-        else :
+        else:
             X = dao.simulate(B, O, n)
 
         X = dao.standardize(X)
 
         num_columns = X.shape[1]  # Number of columns in the array
-        column_names = [f'X{i+1}' for i in range(num_columns)]
+        column_names = [f'X{i + 1}' for i in range(num_columns)]
 
         df = pd.DataFrame(X, columns=column_names)
 
@@ -369,14 +480,15 @@ class FindGoodModel():
             nodes.add(tetrad_data.ContinuousVariable(str(col)))
 
         graph = self.construct_graph(g, nodes)
-        dag = self.construct_graph(g, nodes, cpdag = False)
+        dag = self.construct_graph(g, nodes, cpdag=False)
 
         # Construct the SEM IM given graph and
-        cov = tetrad_data.CovarianceMatrix(nodes, R,  n)
+        cov = tetrad_data.CovarianceMatrix(nodes, R, n)
         sem_pm = tetrad_sem.SemPm(dag)
         sem_im = tetrad_sem.SemIm(sem_pm, cov)
 
         return df, nodes, graph, num_nodes, avg_deg, sem_im
+
 
     def get_model(self, alg, paramValue):
         _search = TetradSearch.TetradSearch(self.train)
@@ -419,6 +531,13 @@ class FindGoodModel():
                                               verbose=False)
             cpdag = self.construct_graph(np.array(self.base.as_matrix(itmcmc[1]), dtype=int).T, nodes, True)
             return cpdag
+        elif alg == 'pchc':
+            print("pchc")
+            bnl = self.pchc.pchc(numpy2rpy(self.train.values), alpha=self.alpha, restart=self.pchc_starts)
+            return self.bnl_to_tetrad(bnl[1][2], cpdag=True)
+        elif alg == 'mmhc':
+            bnl = self.pchc.mmhc(numpy2rpy(self.train.values), max_k=self.mmhc_max_k, alpha=self.alpha, restart=self.mmhc_starts)
+            return self.bnl_to_tetrad(bnl[1][2], cpdag=True)
         elif alg == 'dagma':
             model = DagmaLinear(loss_type='l2')  # create a linear model with least squares loss
             W = model.fit(self.train.to_numpy(), lambda1=paramValue)  # fit the model with L1 reg. (coeff. 0.02)
@@ -428,8 +547,10 @@ class FindGoodModel():
 
         return _search.get_java()
 
+
     def cpdag(self, graph):
         return graph.paths().isLegalCpdag()
+
 
     # MAPS = Markov Algorithm and Parameter Selection
     def maps(self):
@@ -438,8 +559,8 @@ class FindGoodModel():
         penalties = [10.0, 5.0, 4.0, 3, 2.5, 2, 1.75, 1.5, 1.25, 1]
         alphas = [0.001, 0.01, 0.05, 0.1, 0.2]
 
-        for num_nodes in range(5, 30 + 1, 5): # 5, 10, 15, 20, 25, 30
-            for avg_degree in range(1, 6 + 1): # 1, 2, 3, 4, 5
+        for num_nodes in range(5, 30 + 1, 5):  # 5, 10, 15, 20, 25, 30
+            for avg_degree in range(1, 6 + 1):  # 1, 2, 3, 4, 5
                 if avg_degree > num_nodes - 1:
                     continue
 
@@ -472,6 +593,8 @@ class FindGoodModel():
                     find.save_lines('grasp', penalties)
                     find.save_lines('boss', penalties)
                     find.save_lines('bidag', [0])
+                    find.save_lines('mmhc', [0])
+                    find.save_lines('pchc', [0])
 
                     train = translate.pandas_data_to_tetrad(find.get_train())
                     test = translate.pandas_data_to_tetrad(find.get_test())
@@ -488,6 +611,7 @@ class FindGoodModel():
                     train_file.close()
                     test_file.close()
 
+
 output_dir = 'alg_output'
 
 # Create the output directory if it does not exist
@@ -496,4 +620,3 @@ if not os.path.exists(output_dir):
 
 # Run the desired simulation--uncomment the desired line
 FindGoodModel(output_dir, sim_type='lg').maps()
-
