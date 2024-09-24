@@ -2,18 +2,29 @@
 # The plots are generated using the extract_data_and_plot.py script.
 
 import os
+
 import extract_data_and_plot as ep
 
-directory = "alg_output/markov_check_data/"
+directory = "alg_output_with_true/markov_check_lg/"
 
-for filename in os.listdir(directory):
-    if filename.startswith("result") and filename.endswith(".txt"):  # Process only result files
-        file_path = os.path.join(directory, filename)
-        df = ep.extract_first_dataset(file_path)
+for y_var in ['|G|', 'bic', 'f1', 'shd', 'cfi', 'nfi']:
+    for filename in os.listdir(directory):
+        if filename.startswith("result") and filename.endswith(".txt"):  # Process only result files
+            file_path = os.path.join(directory, filename)
+            df = ep.extract_first_dataset(file_path)
 
-        output_file = filename.replace(".txt", ".png")  # Save each plot with a corresponding .png name
-        # ep.generate_plot(df, filename, output_file=output_file, alpha = 0.01)
-        ep.generate_plot(df, filename, "kldiv", "nfi", output_file=output_file, p_value_var = 'p_ks', transparency=0.7, alpha = 0.2)
-        # ep.generate_plot(df, filename, "kldiv", "avgminsd", output_file=output_file, transparency=0.7)
-        # ep.generate_plot(df, filename, "kldiv", "avgmaxsd", output_file=output_file)
+            output_file = filename.replace(".txt", ".png")  # Save each plot with a corresponding .png name
+            ep.generate_plot(df, "simulation", filename, "kldiv", y_var, output_file=output_file, p_value_var='p_ad',
+                             transparency=0.7, alpha=0.05, palette="Set3")
 
+directory = "alg_output/markov_check_us_crime/"
+
+for y_var in ['|G|', 'bic', 'cfi', 'nfi']:
+    for filename in os.listdir(directory):
+        if filename.startswith("result") and filename.endswith(".txt"):  # Process only result files
+            file_path = os.path.join(directory, filename)
+            df = ep.extract_first_dataset(file_path)
+
+            output_file = filename.replace(".txt", ".png")  # Save each plot with a corresponding .png name
+            ep.generate_plot(df, "us_crime", filename, "kldiv", y_var, output_file=output_file, p_value_var='p_ad',
+                             transparency=0.7, alpha=0.2, palette="Set3")

@@ -149,7 +149,7 @@ class FindGoodModel():
 
         self.num_starts = 2
         self.alpha = 0.01
-        self.percentResample = 1
+        self.percentResample = 0.5
         self.sim_type = sim_type
         self.sample_size = sample_size
 
@@ -277,7 +277,7 @@ class FindGoodModel():
         test_java = translate.pandas_data_to_tetrad(self.test)
 
         cpdag, a2Star, p_ad, p_ks, kl_div, frac_dep_null, num_test_indep, num_test_dep \
-            = self.markov_check(graph, test_java, self.params)
+            = self.markov_check(graph, alg, test_java, self.params)
 
         try:
             stats = self.get_stats(self.test, graph)
@@ -388,18 +388,32 @@ class FindGoodModel():
 
         return ap, ar, ahp, ahr, bic, f1_adj, f1_all, f_beta_point5_adj, f_beta_2_adj, shd, avgsd, avgminsd, avgmaxsd, num_params
 
-    def markov_check(self, graph, data, params):
+    def markov_check(self, graph, alg, data, params):
         cpdag = self.cpdag(graph)
-
-        if self.sim_type == 'mn':
-            test = independence.ChiSquare().getTest(data, params)
-            test.setMinCountPerCell(1)
-        else:
-            test = independence.FisherZ().getTest(data, params)
+        test = independence.FisherZ().getTest(data, params)
 
         mc = tetrad_search.MarkovCheck(graph, test, tetrad_search.ConditioningSetType.ORDERED_LOCAL_MARKOV)
         mc.setPercentResample(self.percentResample)
-        mc.generateResults(True)
+
+        # We generate results until we have a minimum of p-values for the uniformity test. For
+        # this, the percent sample needs to be 0.5, so that new samples are generated each time.
+        #
+        # Note that an exception is thrown if any method returns graph that is not a legal CPDAG, where there is
+        # no valid order. This is because we're using ordered local markov. Skip these cases.
+        try:
+            mc.generateResults(False)
+            print("# samples now = " + str(mc.getResults(True).size()))
+
+            while mc.generateResults(True).size() > 0 and mc.getResults(True).size() < 200:
+                try:
+                    mc.generateResults(False)
+                    print("# samples now = " + str(mc.getResults(True).size()))
+                except Exception as e:
+                    break
+        except Exception as e:
+            print(f"An error occurred for algorithm {alg}:", str(e))
+
+
         a2Star = mc.getAndersonDarlingA2Star(True)
         p_ad = mc.getAndersonDarlingP(True)
         p_ks = mc.getKsPValue(True)
@@ -500,7 +514,8 @@ class FindGoodModel():
         for col in self.train.columns:
             nodes.add(tetrad_graph.GraphNode(col))
 
-        # Continuous algorithms
+        if alg == 'true':
+            return self.graph
         if alg == 'fges':
             _search.use_sem_bic(penalty_discount=paramValue)
             _search.run_fges(faithfulness_assumed=False)
@@ -585,6 +600,7 @@ class FindGoodModel():
                     find.header()
 
                     # go through algorithms and parameter choices and save the best lines (print all lines)
+                    find.save_lines('true', [0])
                     find.save_lines('dagma', [0.1, 0.2, 0.3])
                     find.save_lines('pc', alphas)
                     find.save_lines('cpc', alphas)
@@ -611,7 +627,7 @@ class FindGoodModel():
                     test_file.close()
 
 
-output_dir = 'alg_output'
+output_dir = 'alg_output_with_true'
 
 # Create the output directory if it does not exist
 if not os.path.exists(output_dir):
