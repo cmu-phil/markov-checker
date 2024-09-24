@@ -4,6 +4,8 @@
 # F0.5, F2.0, SHD, average squared distance, average minimum squared difference, and average maximum squared difference.
 # The script saves the results to a file in the specified output directory.
 #
+# This version of the script adds a line to the full results for the true model.
+#
 # The script uses the following parameters:
 # - location: The output directory for the results.
 # - file: The file to save the results to.
