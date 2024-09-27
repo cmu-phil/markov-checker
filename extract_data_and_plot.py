@@ -159,12 +159,12 @@ def generate_plot(df, dir_name, file_name, x_var, y_var, kldiv_var='kldiv', edge
     if y_var == 'chisq':
         plt.yscale('log')
 
-    plt.xlim(1e-4, 1)
+    # plt.xlim(1e-4, 1)
 
     # Show the plot
     plt.tight_layout()
 
-    dir = f"plots/{dir_name}/plots_lg_{x_var}_{y_var}"
+    dir = f"plots/{dir_name}_against_{x_var}/plots_lg_{x_var}_{y_var}"
 
     if not os.path.exists(dir):
         os.makedirs(dir)

@@ -94,12 +94,7 @@ import sys
 
 import numpy as np
 import pandas as pd
-from rpy2.robjects.help import p_desc
 from sklearn.model_selection import train_test_split
-from sympy import print_fcode
-
-from dao import simulate
-from scratch import make_data_cont_dao
 
 BASE_DIR = "../py-tetrad/pytetrad"
 sys.path.append(BASE_DIR)
@@ -141,13 +136,16 @@ performance = importr("performance")
 
 import matplotlib.pyplot as plt
 
-
 class FindGoodModel():
 
-    def __init__(self, location, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg',
+    def __init__(self, output_dir, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg',
                  histogram_dir=None):
-        print("FindGoodModel", "location", location, "num_nodes", num_nodes, "avg_degree", avg_degree, "num_latents",
+        print("FindGoodModel", "output_dir", output_dir, "num_nodes", num_nodes, "avg_degree", avg_degree, "num_latents",
               num_latents, "sample_size", sample_size, "sim_type", sim_type)
+
+        # Create the output directory if it does not exist
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
 
         self.histogram_dir = histogram_dir
         self.num_nodes = num_nodes
@@ -157,7 +155,7 @@ class FindGoodModel():
         self.file = None
         self.sim_type = None
 
-        self.location = location
+        self.location = output_dir
 
         self.num_starts = 2
         self.alpha = 0.01
@@ -186,7 +184,7 @@ class FindGoodModel():
 
         self.file = file
 
-        data, nodes, graph, num_nodes, avg_deg, sem_im, B = self.make_data_cont_dao(num_nodes, avg_degree, 0, sample_size)
+        data, nodes, graph, num_nodes, avg_deg, sem_im, B = self.make_data_cont_dao(num_nodes, avg_degree, sample_size)
         self.train, self.test = train_test_split(data, test_size=.5)  # , random_state=42)
 
         self.train_java = translate.pandas_data_to_tetrad(self.train)
@@ -283,7 +281,7 @@ class FindGoodModel():
     def table_line(self, alg, param):
         graph = self.get_model(alg, param)
 
-        self.create_coef_diff_histograms(graph, alg, self.histogram_dir)
+        self.create_coef_diff_histograms(graph, alg, param, self.histogram_dir)
 
         dag = tetrad_graph.GraphTransforms.dagFromCpdag(graph)
 
@@ -472,7 +470,7 @@ class FindGoodModel():
         if cpdag: tetrad_graph.GraphTransforms.dagToCpdag(graph)
         return graph
 
-    def make_data_cont_dao(self, num_nodes, avg_deg, num_latents, sample_size):
+    def make_data_cont_dao(self, num_nodes, avg_deg, sample_size):
         """
          Picks a random graph and generates data from it, using the DaO simulation package
          (Andrews, B., & Kummerfeld, E. (2024). Better Simulations for Validating Causal Discovery
@@ -587,7 +585,7 @@ class FindGoodModel():
 
 
     # CAFS = Cross-Algorithm Frugality Search
-    def cafs(self, histogram_dir = None):
+    def cafs(self):
         dir = f'markov_check_{self.sim_type}'
 
         penalties = [10.0, 5.0, 4.0, 3, 2.5, 2, 1.75, 1.5, 1.25, 1]
@@ -646,7 +644,16 @@ class FindGoodModel():
                     train_file.close()
                     test_file.close()
 
-    def create_coef_diff_histograms(self, cpdag, alg, histogram_dir):
+    def create_coef_diff_histograms(self, cpdag, alg, param, histogram_dir):
+        if histogram_dir == None:
+            return
+
+        if (self.num_nodes != 25 or self.avg_degree != 5):
+            return
+
+        if not os.path.exists(histogram_dir):
+            os.makedirs(histogram_dir)
+
         dag = self.sem_im.getSemPm().getGraph()
 
         # Get the B coefficients from the sem_im
@@ -657,61 +664,84 @@ class FindGoodModel():
 
         # Now find the list of directed edges in dag that are also in cpdag and add these to a list.
         edges = dag.getEdges()
+
         directed_edges = []
 
         for e in edges:
-            if tetrad_graph.Edges.isDirectedEdge(e):
+            if Edges.isDirectedEdge(e):
                 directed_edges.append(e)
 
         # Now, get the coefficients for all the directed edges in the list of directed edges
-        directed_edge_coefs = []
-        nodes = dag.getNodes()
+        in_cpdag = []
+        not_in_cpdag_but_adjacent = []
+        not_in_cpdag = []
+        nodes = cpdag.getNodes()
 
         for e in directed_edges:
+            n1 = cpdag.getNode(Edges.getDirectedEdgeTail(e).getName())
+            n2 = cpdag.getNode(Edges.getDirectedEdgeHead(e).getName())
+
+            tail = nodes.indexOf(Edges.getDirectedEdgeTail(e))
+            head = nodes.indexOf(Edges.getDirectedEdgeHead(e))
 
             # Check that e is also in cpdag
-            if cpdag.containsEdge(e):
-                tail = nodes.indexOf(Edges.getDirectedEdgeTail(e))
-                head = nodes.indexOf(Edges.getDirectedEdgeHead(e))
-                directed_edge_coefs.append(B[tail, head])
+            if cpdag.containsEdge(Edges.directedEdge(n1, n2)):
+                in_cpdag.append(B[tail, head])
+
+            if not cpdag.containsEdge(Edges.directedEdge(n1, n2)):
+                not_in_cpdag.append(B[tail, head])
+
+            if not cpdag.containsEdge(Edges.directedEdge(n1, n2)) and cpdag.isAdjacentTo(n1, n2):
+                not_in_cpdag_but_adjacent.append(B[tail, head])
+
+        in_cpdag = np.array(in_cpdag)
+        not_in_cpdag = np.array(not_in_cpdag)
+        not_in_cpdag_but_adjacent = np.array(not_in_cpdag_but_adjacent)
+
+        abs_nonzero_B = np.abs(non_zero_B)
+        abs_in_cpdag = np.abs(in_cpdag)
+        abs_not_in_cpdag = np.abs(not_in_cpdag)
+        abs_not_in_cpdag_and_adjacent = np.abs(not_in_cpdag_but_adjacent)
 
         # Create two subplots side by side
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 4))  # Adjusted the figsize for better spacing with two plots
 
-        # Plot the first histogram
-        ax1.hist(non_zero_B, bins=10, edgecolor='black')
-        ax1.set_title(f"DAG Coefficients for {alg}_{self.num_nodes}_{self.avg_degree}")
+        # Plot the first histogram with percentages
+        ax1.hist(abs_nonzero_B, bins=10, edgecolor='black', weights=np.ones(len(abs_nonzero_B)) / len(abs_nonzero_B) * 100)
+        ax1.set_title("True Coefficients")
         ax1.set_xlabel("Coefficient Value")
-        ax1.set_ylabel("Frequency")
+        ax1.set_ylabel("Percentage")
+        ax1.set_xlim(0, 1)
+        ax1.set_ylim(0, 30)
 
-        # Plot the second histogram
-        ax2.hist(directed_edge_coefs, bins=10, edgecolor='black')
-        ax2.set_title(f"DAG Coefficients in the CPDAG for {alg}_{self.num_nodes}_{self.avg_degree}")
+        # Plot the second histogram with percentages
+        ax2.hist(abs_not_in_cpdag_and_adjacent, bins=10, edgecolor='black', weights=np.ones(len(abs_not_in_cpdag_and_adjacent)) / len(abs_not_in_cpdag_and_adjacent) * 100)
+        ax2.set_title("In DAG, not in CPDAG but Adjacent")
         ax2.set_xlabel("Coefficient Value")
-        ax2.set_ylabel("Frequency")
+        ax2.set_ylabel("Percentage")
+        ax2.set_xlim(0, 1)
+        ax2.set_ylim(0, 30)
 
-        # Adjust the layout to avoid overlap
-        plt.tight_layout()
+        # Adjust layout to make room for the suptitle
+        plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
+
+
+        # Add a general caption above all subplots
+        # fig.suptitle(f"Comparison of Coefficient Distributions for {alg}_{self.num_nodes}_{self.avg_degree}", fontsize=16)
+
+        # Adjust layout to make room for the suptitle
+        plt.tight_layout(rect=(0.0, 0.0, 1.0, 0.95))
 
         # Save the plot to a file
-        histogram_file = f"histograms_{self.num_nodes}_{self.avg_degree}_{alg}.png"
+        histogram_file = f"histograms_{self.num_nodes}_{self.avg_degree}_{alg}_{param}.png"
         plt.savefig(f"{histogram_dir}/{histogram_file}")
 
         # # Show the plot
         # plt.show()
 
-
 output_dir = 'alg_output_with_true'
-histogram_dir = f"plots/histograms/coef_histograms"
+histogram_dir = "plots/histograms/coef_histograms"
 
-# Create the output directory if it does not exist
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-
-if not os.path.exists(histogram_dir):
-    os.makedirs(histogram_dir)
-
-# Run the desired simulation--uncomment the desired line
 FindGoodModel(output_dir, sim_type='lg', histogram_dir = histogram_dir).cafs()
 
 
