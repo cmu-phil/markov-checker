@@ -94,7 +94,12 @@ import sys
 
 import numpy as np
 import pandas as pd
+from rpy2.robjects.help import p_desc
 from sklearn.model_selection import train_test_split
+from sympy import print_fcode
+
+from dao import simulate
+from scratch import make_data_cont_dao
 
 BASE_DIR = "../py-tetrad/pytetrad"
 sys.path.append(BASE_DIR)
@@ -114,6 +119,7 @@ import edu.cmu.tetrad.sem as tetrad_sem
 from edu.cmu.tetrad.util import Params, Parameters
 import edu.cmu.tetrad.algcomparison.independence as independence
 import edu.cmu.tetrad.algcomparison.statistic as statistic
+from edu.cmu.tetrad.graph import Edges
 
 # For linear simulations.
 import dao as dao
@@ -133,13 +139,17 @@ base = importr("base")
 lavaan = importr("lavaan")
 performance = importr("performance")
 
+import matplotlib.pyplot as plt
+
 
 class FindGoodModel():
 
-    def __init__(self, location, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg'):
+    def __init__(self, location, file=None, num_nodes=5, avg_degree=2, num_latents=0, sample_size=100, sim_type='lg',
+                 histogram_dir=None):
         print("FindGoodModel", "location", location, "num_nodes", num_nodes, "avg_degree", avg_degree, "num_latents",
               num_latents, "sample_size", sample_size, "sim_type", sim_type)
 
+        self.histogram_dir = histogram_dir
         self.num_nodes = num_nodes
         self.avg_degree = avg_degree
         self.num_latents = num_latents
@@ -176,7 +186,7 @@ class FindGoodModel():
 
         self.file = file
 
-        data, nodes, graph, num_nodes, avg_deg, sem_im = self.make_data_cont_dao(num_nodes, avg_degree, 0, sample_size)
+        data, nodes, graph, num_nodes, avg_deg, sem_im, B = self.make_data_cont_dao(num_nodes, avg_degree, 0, sample_size)
         self.train, self.test = train_test_split(data, test_size=.5)  # , random_state=42)
 
         self.train_java = translate.pandas_data_to_tetrad(self.train)
@@ -194,6 +204,8 @@ class FindGoodModel():
 
         self.mmhc_starts = 10
         self.pchc_starts = 10
+
+        self.B = B
 
     # This script calculates the CFI, NFI, and NNFI for a given model using lavaan.
     def get_stats(self, df, graph):
@@ -271,6 +283,10 @@ class FindGoodModel():
     def table_line(self, alg, param):
         graph = self.get_model(alg, param)
 
+        self.create_coef_diff_histograms(graph, alg, self.histogram_dir)
+
+        dag = tetrad_graph.GraphTransforms.dagFromCpdag(graph)
+
         data_java = translate.pandas_data_to_tetrad(self.test)
 
         ap, ar, ahp, ahr, bic, f1_adj, f1_all, f_beta_point5_adj, f_beta_2_adj, shd, avgsd, avgminsd, avgmaxsd, num_params \
@@ -281,15 +297,15 @@ class FindGoodModel():
         cpdag, a2Star, p_ad, p_ks, kl_div, frac_dep_null, num_test_indep, num_test_dep \
             = self.markov_check(graph, alg, test_java, self.params)
 
-        try:
-            stats = self.get_stats(self.test, graph)
-            cfi = stats["CFI"]
-            nfi = stats["NFI"]
-            nnfi = stats["NNFI"]
-        except Exception:
-            cfi = float('nan')
-            nfi = float('nan')
-            nnfi = float('nan')
+        # try:
+        stats = self.get_stats(self.test, dag)
+        cfi = stats["CFI"]
+        nfi = stats["NFI"]
+        nnfi = stats["NNFI"]
+        chisq = stats["Chi2"]
+        dof = stats["Chi2_df"]
+        likelihood = stats["Loglikelihood"]
+        p_value = stats["p_Chi2"]
 
         edges = graph.getNumEdges()
 
@@ -297,18 +313,19 @@ class FindGoodModel():
 
         line = (f"{alg:14} {param:8.3f}  {self.graph.getNumNodes():5}    {edges:3}    {num_params:7.0f}"
                 f" {cpdag:6} {num_test_indep:9} "
-                f" {a2Star:8.4f} {p_ad:8.4f} {p_ks:8.4f} {kl_div:8.4f}  "
-                f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  "
-                f"[TRUTH-->] {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} {f1_all:6.4f} "
-                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f} {shd:6}  {avgsd:5.4f}  {avgminsd:7.4f}  {avgmaxsd:7.4f}")
+                f" {a2Star:8.4f} {p_ad:8.4f} {p_ks:8.4f} {kl_div:8.4f} {likelihood:8.4f}"
+                f" {dist_alpha:8.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}  {chisq:6.4f}  {dof:6.4f}  {p_value:6.4f}  "
+                f" {self.graph.getNumEdges():5}  {ap:5.4f} {ar:5.4f} {ahp:5.4f} {ahr:5.4f} {f1_adj:6.4f} {f1_all:6.4f} "
+                f" {f_beta_point5_adj:5.4f} {f_beta_2_adj:5.4f} {shd:6}")
 
         return graph, p_ad, frac_dep_null, edges, line, graph, data_java
 
     def header(self):
         str = (
-            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad     p_ks    kldiv   |alpha|"
-            f"           bic    cfi     nfi    nnfi  [TRUTH-->]  |G*|      ap     ar    ahp    ahr"
-            f"     f1 f1_all    f0.5   f2.0    shd   avgsd avgminsd avgmaxsd")
+            f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad     p_ks    kldiv   loglik  |alpha|"
+            f"           bic    cfi     nfi    nnfi   chisq     dof  pvalue"
+            f"  |G*|      ap     ar    ahp    ahr"
+            f"     f1 f1_all   f0.5   f2.0    shd")
         self.my_print(str)
         self.my_print('-' * len(str))
 
@@ -395,7 +412,7 @@ class FindGoodModel():
         test = independence.FisherZ().getTest(data, params)
 
         mc = tetrad_search.MarkovCheck(graph, test, tetrad_search.ConditioningSetType.ORDERED_LOCAL_MARKOV)
-        mc.setPercentResample(self.percentResample)
+        mc.setPercentResample(0.5)
 
         # We generate results until we have a minimum of p-values for the uniformity test. For
         # this, the percent sample needs to be 0.5, so that new samples are generated each time.
@@ -406,7 +423,7 @@ class FindGoodModel():
             mc.generateResults(False)
             print("# samples now = " + str(mc.getResults(True).size()))
 
-            while mc.generateResults(True).size() > 0 and mc.getResults(True).size() < 200:
+            while mc.getResults(True).size() > 0 and mc.getResults(True).size() < 200:
                 try:
                     mc.generateResults(False)
                     print("# samples now = " + str(mc.getResults(True).size()))
@@ -503,7 +520,7 @@ class FindGoodModel():
         sem_pm = tetrad_sem.SemPm(dag)
         sem_im = tetrad_sem.SemIm(sem_pm, cov)
 
-        return df, nodes, graph, num_nodes, avg_deg, sem_im
+        return df, nodes, graph, num_nodes, avg_deg, sem_im, B
 
 
     def get_model(self, alg, paramValue):
@@ -569,8 +586,8 @@ class FindGoodModel():
         return graph.paths().isLegalCpdag()
 
 
-    # MAPS = Markov Algorithm and Parameter Selection
-    def maps(self):
+    # CAFS = Cross-Algorithm Frugality Search
+    def cafs(self, histogram_dir = None):
         dir = f'markov_check_{self.sim_type}'
 
         penalties = [10.0, 5.0, 4.0, 3, 2.5, 2, 1.75, 1.5, 1.25, 1]
@@ -595,7 +612,8 @@ class FindGoodModel():
                       open(f'{self.location}/{dir}/graph_{num_nodes}_{avg_degree}.txt', 'w') as graph_file,
                       open(f'{self.location}/{dir}/train_{num_nodes}_{avg_degree}.txt', 'w') as train_file,
                       open(f'{self.location}/{dir}/test_{num_nodes}_{avg_degree}.txt', 'w') as test_file):
-                    find = FindGoodModel(self.location, file, num_nodes, avg_degree, 0, 1000, self.sim_type)
+                    find = FindGoodModel(self.location, file, num_nodes, avg_degree, 0, 1000,
+                                         self.sim_type, histogram_dir=self.histogram_dir)
 
                     # print parameter defs and header
                     find.print_parameter_defs()
@@ -628,12 +646,72 @@ class FindGoodModel():
                     train_file.close()
                     test_file.close()
 
+    def create_coef_diff_histograms(self, cpdag, alg, histogram_dir):
+        dag = self.sem_im.getSemPm().getGraph()
+
+        # Get the B coefficients from the sem_im
+        B = np.array(self.sem_im.getEdgeCoef().toArray())
+
+        # Now, get all the coefficients for all of the edges in B--i.e. all of the entries in B that are not zero
+        non_zero_B = B[B != 0]
+
+        # Now find the list of directed edges in dag that are also in cpdag and add these to a list.
+        edges = dag.getEdges()
+        directed_edges = []
+
+        for e in edges:
+            if tetrad_graph.Edges.isDirectedEdge(e):
+                directed_edges.append(e)
+
+        # Now, get the coefficients for all the directed edges in the list of directed edges
+        directed_edge_coefs = []
+        nodes = dag.getNodes()
+
+        for e in directed_edges:
+
+            # Check that e is also in cpdag
+            if cpdag.containsEdge(e):
+                tail = nodes.indexOf(Edges.getDirectedEdgeTail(e))
+                head = nodes.indexOf(Edges.getDirectedEdgeHead(e))
+                directed_edge_coefs.append(B[tail, head])
+
+        # Create two subplots side by side
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+
+        # Plot the first histogram
+        ax1.hist(non_zero_B, bins=10, edgecolor='black')
+        ax1.set_title(f"DAG Coefficients for {alg}_{self.num_nodes}_{self.avg_degree}")
+        ax1.set_xlabel("Coefficient Value")
+        ax1.set_ylabel("Frequency")
+
+        # Plot the second histogram
+        ax2.hist(directed_edge_coefs, bins=10, edgecolor='black')
+        ax2.set_title(f"DAG Coefficients in the CPDAG for {alg}_{self.num_nodes}_{self.avg_degree}")
+        ax2.set_xlabel("Coefficient Value")
+        ax2.set_ylabel("Frequency")
+
+        # Adjust the layout to avoid overlap
+        plt.tight_layout()
+
+        # Save the plot to a file
+        histogram_file = f"histograms_{self.num_nodes}_{self.avg_degree}_{alg}.png"
+        plt.savefig(f"{histogram_dir}/{histogram_file}")
+
+        # # Show the plot
+        # plt.show()
+
 
 output_dir = 'alg_output_with_true'
+histogram_dir = f"plots/histograms/coef_histograms"
 
 # Create the output directory if it does not exist
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
+if not os.path.exists(histogram_dir):
+    os.makedirs(histogram_dir)
+
 # Run the desired simulation--uncomment the desired line
-FindGoodModel(output_dir, sim_type='lg').maps()
+FindGoodModel(output_dir, sim_type='lg', histogram_dir = histogram_dir).cafs()
+
+
