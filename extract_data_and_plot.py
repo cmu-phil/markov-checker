@@ -154,7 +154,7 @@ def generate_plot(df, dir_name, file_name, x_var, y_var, kldiv_var='kldiv', edge
 
     # Add a legend to show which color corresponds to each algorithm and p-value condition
     plt.legend(title=alg_var)
-    plt.xscale('log')
+    # plt.xscale('log')
 
     if y_var == 'chisq':
         plt.yscale('log')

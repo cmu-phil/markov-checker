@@ -295,7 +295,6 @@ class FindGoodModel():
         cpdag, a2Star, p_ad, p_ks, kl_div, frac_dep_null, num_test_indep, num_test_dep \
             = self.markov_check(graph, alg, test_java, self.params)
 
-        # try:
         stats = self.get_stats(self.test, dag)
         cfi = stats["CFI"]
         nfi = stats["NFI"]

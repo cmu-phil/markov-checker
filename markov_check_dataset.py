@@ -203,15 +203,16 @@ class FindGoodModelDataset():
         cpdag, a2Star, p_ad, p_ks, kl_div, frac_dep_null, num_test_indep, num_test_dep \
             = self.markov_check(graph, test_java, self.params)
 
-        try:
-            stats = self.get_stats(self.test, graph)
-            cfi = stats["CFI"]
-            nfi = stats["NFI"]
-            nnfi = stats["NNFI"]
-        except Exception:
-            cfi = float('nan')
-            nfi = float('nan')
-            nnfi = float('nan')
+        dag = tetrad_graph.GraphTransforms.dagFromCpdag(graph)
+
+        stats = self.get_stats(self.test, dag)
+        cfi = stats["CFI"]
+        nfi = stats["NFI"]
+        nnfi = stats["NNFI"]
+        chisq = stats["Chi2"]
+        dof = stats["Chi2_df"]
+        likelihood = stats["Loglikelihood"]
+        p_value = stats["p_Chi2"]
 
         edges = graph.getNumEdges()
 
@@ -220,14 +221,15 @@ class FindGoodModelDataset():
         line = (f"{alg:14} {param:8.3f}  {self.num_nodes:5}    {edges:3}    {num_params:7.0f}"
                 f" {cpdag:6} {num_test_indep:9} "
                 f" {a2Star:8.4f} {p_ad:8.4f} {p_ks:8.4f} {kl_div:8.4f}  "
-                f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}")
+                f" {dist_alpha:7.4f}  {bic:12.4f} {cfi:6.4f}  {nfi:6.4f}  {nnfi:6.4f}"
+                f"  {chisq:6.4f}  {dof:6.4f}  {p_value:6.4f} {likelihood:8.4f}")
 
         return graph, p_ad, frac_dep_null, edges, line, graph, data_java
 
     def header(self):
         str = (
             f"alg               param  nodes    |G| num_params  cpdag    numind       a2*     p_ad     p_ks    kldiv   |alpha|"
-            f"           bic    cfi     nfi    nnfi")
+            f"           bic    cfi     nfi    nnfi   chisq     dof  pvalue   loglik")
         self.my_print(str)
         self.my_print('-' * len(str))
 
@@ -384,7 +386,7 @@ class FindGoodModelDataset():
         return graph.paths().isLegalCpdag()
 
     # MAPS = Markov Algorithm and Parameter Selection
-    def maps(self):
+    def cafs(self):
         dir = f'markov_check_{self.sim_type}'
 
         penalties = [10.0, 5.0, 4.0, 3, 2.5, 2, 1.75, 1.5, 1.25, 1]
@@ -442,4 +444,4 @@ if not os.path.exists(output_dir):
 
 data_file = 'resources/uscrime.continuous.txt'
 
-FindGoodModelDataset(output_dir, data_file=data_file, sim_type='data').maps()
+FindGoodModelDataset(output_dir, data_file=data_file, sim_type='data').cafs()

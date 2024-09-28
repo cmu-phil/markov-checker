@@ -19,10 +19,10 @@ import extract_data_and_plot as ep
 #             ep.generate_plot(df, "simulation", filename, "kldiv", y_var, output_file=output_file, p_value_var='p_ad',
 #                              transparency=0.7, alpha=0.05, palette="Set3")
 
-directory = "alg_output/markov_check_us_crime/"
+directory = "alg_output/markov_check_data/"
 
 # for y_var in ['chisq', 'dof', 'pvalue']:
-for y_var in ['|G|', 'bic', 'cfi', 'nfi']: #, 'chisq', 'dof', 'loglik', 'pvalue', 'kldiv']:
+for y_var in ['|G|', 'bic', 'cfi', 'nfi', 'chisq', 'dof', 'loglik', 'pvalue', 'kldiv']:
     for filename in os.listdir(directory):
         if filename.startswith("result") and filename.endswith(".txt"):  # Process only result files
             file_path = os.path.join(directory, filename)
