@@ -1,8 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.special.cython_special import kl_div
-
 
 def extract_first_dataset(file_path):
     with open(file_path, 'r') as file:

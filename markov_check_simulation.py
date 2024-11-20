@@ -207,8 +207,11 @@ class FindGoodModel():
 
     def save_lines(self, alg, params):
         for param in params:
-            cpdag, p_ad, fd_indep, edges, line, cpdag, data_java = self.table_line(alg, param)
-            self.my_print(line)
+            try:
+                cpdag, p_ad, fd_indep, edges, line, cpdag, data_java = self.table_line(alg, param)
+                self.my_print(line)
+            except Exception as e:
+                print(f"Error: {e}")
 
     def print_info(self, msg):
         self.my_print()
